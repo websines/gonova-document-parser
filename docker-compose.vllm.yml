@@ -1,0 +1,119 @@
+version: '3.8'
+
+# vLLM Docker Compose for NVIDIA 3090
+# Note: For 3090 (24GB), run ONE service at a time or use model swapping
+# Recommended: Start only the model you need for current workload
+
+services:
+  # DeepSeek-OCR (3B params) - Primary processor for standard documents
+  vllm-deepseek:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-deepseek
+    ports:
+      - "8000:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command:
+      - --model=deepseek-ai/DeepSeek-OCR
+      - --host=0.0.0.0
+      - --port=8000
+      - --dtype=bfloat16
+      - --gpu-memory-utilization=0.85
+      - --max-model-len=8192
+      - --tensor-parallel-size=1
+      - --trust-remote-code
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    shm_size: 8gb
+    profiles:
+      - deepseek
+      - all
+
+  # Nanonets-OCR2-3B (4B params) - Handwriting, signatures, VQA
+  vllm-nanonets:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-nanonets
+    ports:
+      - "8001:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command:
+      - --model=nanonets/Nanonets-OCR2-3B
+      - --host=0.0.0.0
+      - --port=8000
+      - --dtype=bfloat16
+      - --gpu-memory-utilization=0.85
+      - --max-model-len=15000
+      - --tensor-parallel-size=1
+      - --trust-remote-code
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    shm_size: 8gb
+    profiles:
+      - nanonets
+      - all
+
+  # Granite-Docling-258M - Semantic enrichment (smallest model)
+  vllm-granite:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-granite
+    ports:
+      - "8002:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command:
+      - --model=ibm-granite/granite-docling-258m
+      - --host=0.0.0.0
+      - --port=8000
+      - --dtype=bfloat16
+      - --gpu-memory-utilization=0.5
+      - --max-model-len=8192
+      - --tensor-parallel-size=1
+      - --trust-remote-code
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    shm_size: 4gb
+    profiles:
+      - granite
+      - all
+
+# Usage:
+# ------
+# Start only DeepSeek (recommended for standard documents):
+#   docker compose -f docker-compose.vllm.yml --profile deepseek up -d
+#
+# Start only Nanonets (for handwriting/signatures):
+#   docker compose -f docker-compose.vllm.yml --profile nanonets up -d
+#
+# Start only Granite (for enrichment):
+#   docker compose -f docker-compose.vllm.yml --profile granite up -d
+#
+# WARNING: Starting all simultaneously may exceed 24GB VRAM:
+#   docker compose -f docker-compose.vllm.yml --profile all up -d
+#
+# Stop all:
+#   docker compose -f docker-compose.vllm.yml down
+#
+# Check logs:
+#   docker compose -f docker-compose.vllm.yml logs -f vllm-deepseek
