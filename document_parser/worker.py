@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from loguru import logger
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 import redis
 
 from document_parser.config import AccuracyMode, settings
@@ -132,15 +132,18 @@ def start_worker(queue_names: list[str] = None, burst: bool = False):
 
     redis_conn = redis.from_url(settings.redis_url)
 
-    with Connection(redis_conn):
-        worker = Worker(
-            [Queue(name) for name in queue_names],
-            name=f"worker-{os.getpid()}",
-        )
+    # Create queues with connection
+    queues = [Queue(name, connection=redis_conn) for name in queue_names]
 
-        logger.success(f"Worker started: {worker.name}")
+    worker = Worker(
+        queues,
+        name=f"worker-{os.getpid()}",
+        connection=redis_conn,
+    )
 
-        worker.work(burst=burst, with_scheduler=True)
+    logger.success(f"Worker started: {worker.name}")
+
+    worker.work(burst=burst, with_scheduler=True)
 
 
 if __name__ == "__main__":
