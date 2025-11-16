@@ -8,6 +8,7 @@ Production-ready API with:
 """
 
 import asyncio
+import multiprocessing
 import time
 import uuid
 from enum import Enum
@@ -30,6 +31,11 @@ from pydantic import BaseModel, Field
 
 from document_parser.config import AccuracyMode, InferenceMode, settings
 from document_parser.hybrid_processor import GraphDocument, HybridDocumentProcessor
+from document_parser.job_manager import JobManager, JobStatus
+from document_parser.worker import process_pdf_job
+
+import redis
+from rq import Queue
 
 # ============================================================================
 # Models
@@ -121,11 +127,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize Redis and RQ queue for async job processing
+redis_conn = redis.from_url(settings.redis_url)
+job_queue = Queue("default", connection=redis_conn)
+job_manager = JobManager()
+
 # Global state
 processor: Optional[HybridDocumentProcessor] = None
-job_queue = None  # Will be initialized on startup
 upload_dir = Path("./uploads")
 output_dir = Path("./outputs")
+worker_processes: List[multiprocessing.Process] = []
 
 # Create directories
 upload_dir.mkdir(exist_ok=True)
@@ -139,15 +150,26 @@ output_dir.mkdir(exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize processor and queue on startup."""
-    global processor, job_queue
+    """Initialize processor and start background workers."""
+    global processor, worker_processes
     logger.info("Starting document processing API...")
 
-    # Initialize job queue
-    from document_parser.queue import JobQueue
+    # Start background workers (default: 2 workers)
+    num_workers = getattr(settings, "num_workers", 2)
+    logger.info(f"Starting {num_workers} background workers...")
 
-    redis_url = settings.redis_url if hasattr(settings, "redis_url") else "redis://localhost:6379/0"
-    job_queue = JobQueue(redis_url=redis_url)
+    from document_parser.worker import start_worker
+
+    for i in range(num_workers):
+        p = multiprocessing.Process(
+            target=start_worker,
+            args=(["default"], False),  # queue_names, burst
+            name=f"rq-worker-{i+1}",
+            daemon=True,
+        )
+        p.start()
+        worker_processes.append(p)
+        logger.success(f"Started worker {i+1} (PID: {p.pid})")
 
     logger.info(f"Job queue initialized (using Redis: {job_queue.use_redis})")
 
@@ -165,7 +187,21 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    global processor
+    global processor, worker_processes
+
+    # Stop background workers
+    logger.info("Stopping background workers...")
+    for p in worker_processes:
+        if p.is_alive():
+            logger.info(f"Terminating worker {p.name} (PID: {p.pid})")
+            p.terminate()
+            p.join(timeout=5)
+            if p.is_alive():
+                p.kill()
+
+    worker_processes.clear()
+    logger.success("All workers stopped")
+
     if processor:
         processor.cleanup()
     logger.info("API shutdown complete")
@@ -561,6 +597,159 @@ async def process_document_sync(
         # Cleanup temp file
         if pdf_path.exists():
             pdf_path.unlink()
+
+
+# ============================================================================
+# Async Job Queue Endpoints
+# ============================================================================
+
+
+@app.post(
+    "/v1/process/async",
+    tags=["Processing"],
+    summary="Process document asynchronously",
+    description="""
+    Submit a PDF for async processing and get a job_id immediately.
+
+    Perfect for:
+    - Large documents (hundreds of pages)
+    - Multiple concurrent uploads
+    - Avoiding timeouts
+
+    Use GET /v1/jobs/{job_id}/status to check progress.
+    Use GET /v1/jobs/{job_id}/result to download markdown when complete.
+    """,
+    status_code=202,
+)
+async def process_document_async(
+    file: UploadFile = File(...),
+    accuracy_mode: str = Form("balanced"),
+    output_format: str = Form("markdown"),
+    generate_embeddings: bool = Form(False),
+):
+    """Process document asynchronously with job queue."""
+    # Validate file
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    # Generate job ID
+    job_id = str(uuid.uuid4())
+
+    # Save file temporarily
+    pdf_path = upload_dir / f"{job_id}.pdf"
+    content = await file.read()
+    pdf_path.write_bytes(content)
+
+    # Create job in Redis
+    job_manager.create_job(
+        job_id=job_id,
+        filename=file.filename,
+        metadata={
+            "accuracy_mode": accuracy_mode,
+            "output_format": output_format,
+            "generate_embeddings": generate_embeddings,
+        },
+    )
+
+    # Enqueue job for background processing
+    job_queue.enqueue(
+        process_pdf_job,
+        job_id=job_id,
+        pdf_path=str(pdf_path),
+        accuracy_mode=accuracy_mode,
+        output_format=output_format,
+        generate_embeddings=generate_embeddings,
+        job_timeout="30m",  # 30 minute timeout for very large PDFs
+    )
+
+    logger.info(f"Enqueued job {job_id} for {file.filename}")
+
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "message": "Job submitted successfully",
+        "status_url": f"/v1/jobs/{job_id}/status",
+        "result_url": f"/v1/jobs/{job_id}/result",
+    }
+
+
+@app.get(
+    "/v1/jobs/{job_id}/status",
+    tags=["Jobs"],
+    summary="Get job status and progress",
+    description="Check the status of an async processing job.",
+)
+async def get_job_status(job_id: str):
+    """Get job status and progress."""
+    job = job_manager.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return job.model_dump()
+
+
+@app.get(
+    "/v1/jobs/{job_id}/result",
+    tags=["Jobs"],
+    summary="Download processing result",
+    description="Download the processed markdown output. Only available when job status is 'completed'.",
+)
+async def get_job_result(job_id: str):
+    """Download job result (markdown output)."""
+    job = job_manager.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job not completed yet. Current status: {job.status}",
+        )
+
+    result = job_manager.get_result(job_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    # Return as downloadable file
+    return JSONResponse(
+        content={"markdown": result, "filename": job.filename},
+        headers={
+            "Content-Disposition": f'attachment; filename="{job.filename.replace(".pdf", ".md")}"'
+        },
+    )
+
+
+@app.get(
+    "/v1/jobs",
+    tags=["Jobs"],
+    summary="List recent jobs",
+    description="Get a list of recent processing jobs with their status.",
+)
+async def list_jobs(limit: int = Query(100, le=1000)):
+    """List recent jobs."""
+    jobs = job_manager.list_jobs(limit=limit)
+    return {"jobs": [job.model_dump() for job in jobs], "total": len(jobs)}
+
+
+@app.delete(
+    "/v1/jobs/{job_id}",
+    tags=["Jobs"],
+    summary="Delete job and its result",
+    description="Delete a job and its associated result from Redis.",
+)
+async def delete_job(job_id: str):
+    """Delete job and result."""
+    job = job_manager.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_manager.delete_job(job_id)
+
+    return {"message": "Job deleted successfully"}
 
 
 @app.get(
