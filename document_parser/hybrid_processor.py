@@ -258,6 +258,7 @@ class HybridDocumentProcessor:
             edges=result.edges or [],
             metadata={
                 **result.metadata,
+                "output": result.output,  # Add the actual markdown/json/html output
                 "routing_info": routing_info,
                 "accuracy_mode": self.accuracy_mode.value,
                 "inference_mode": self.inference_mode.value,
