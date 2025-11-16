@@ -30,9 +30,9 @@ class DeepSeekProcessor(BaseProcessor):
     """
 
     PROMPTS = {
-        "base": "<image>\n<|grounding|>Convert to markdown.",
-        "gundam": "<image>\n<|grounding|>Convert to markdown with proper formatting. Preserve table structure, headers, and formatting. Use proper markdown syntax for headings, lists, and emphasis.",
-        "gundam-m": "<image>\n<|grounding|>Convert to markdown with maximum fidelity. Preserve complex tables with correct alignment, multi-level headers, nested lists, code blocks, and mathematical equations. Maintain document structure and formatting precisely.",
+        "base": "<image>\n<|grounding|>Convert this page to markdown.",
+        "gundam": "<image>\n<|grounding|>Convert this page to markdown. Preserve tables, headings, lists, and text formatting accurately.",
+        "gundam-m": "<image>\n<|grounding|>Convert this page to markdown with high fidelity. Preserve complex tables, headers, lists, code blocks, and equations. Maintain structure precisely.",
     }
 
     def __init__(self, config: Dict[str, Any]):
@@ -75,12 +75,13 @@ class DeepSeekProcessor(BaseProcessor):
                 params={
                     "model": self.model_id,
                     "max_tokens": 4096,  # Conservative limit (model max is 8192 total including input)
-                    "temperature": 0.0,  # Deterministic output
-                    "top_p": 0.9,  # Slightly higher for better quality
+                    "temperature": 0.1,  # Low but not zero to avoid repetition
+                    "top_p": 0.95,
+                    "repetition_penalty": 1.1,  # Prevent repetition loops
                 },
                 prompt=self.PROMPTS[self.resolution_mode],
                 response_format=ResponseFormat.MARKDOWN,
-                temperature=0.0,
+                temperature=0.1,
                 timeout=600,  # 10 minute timeout for large documents
             )
             logger.info(f"Using vLLM server at {self.vllm_url} (optimized for quality, timeout=600s)")
