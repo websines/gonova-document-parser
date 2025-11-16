@@ -654,8 +654,8 @@ async def process_document_async(
     # Enqueue job for background processing
     job_queue.enqueue(
         process_pdf_job,
-        job_id=job_id,
-        pdf_path=str(pdf_path),
+        job_id,  # Positional arg
+        str(pdf_path),  # Positional arg
         accuracy_mode=accuracy_mode,
         output_format=output_format,
         generate_embeddings=generate_embeddings,
