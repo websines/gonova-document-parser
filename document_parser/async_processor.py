@@ -201,6 +201,7 @@ class AsyncVlmProcessor:
                                 max_tokens=4096,
                                 temperature=0.1,
                                 top_p=0.95,
+                                repetition_penalty=1.1,  # Prevent repetition loops
                             ),
                             timeout=self.timeout,
                         )
