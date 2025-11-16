@@ -59,9 +59,13 @@ class DocumentAnalyzer:
                 has_text = len(text.strip()) > 50
                 analysis["text_layers"].append(has_text)
 
-                # Check for form fields (AcroForm, annotations)
-                if "/AcroForm" in page or "/Annots" in page:
-                    analysis["has_forms"] = True
+                # Check for REAL form fields (only AcroForm with fillable fields)
+                # Ignore simple annotations like links, highlights
+                if "/AcroForm" in page:
+                    acroform = page.get("/AcroForm")
+                    # Only mark as form if it has actual fillable fields
+                    if acroform and "/Fields" in acroform:
+                        analysis["has_forms"] = True
 
                 # Check for images
                 if "/XObject" in page.get("/Resources", {}):

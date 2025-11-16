@@ -172,6 +172,7 @@ class HybridDocumentProcessor:
         # Step 1: Fast document analysis
         logger.info("Step 1: Analyzing document...")
         analysis = self.analyzer.analyze(pdf_path)
+        logger.debug(f"  Analysis: pages={analysis.get('total_pages')}, forms={analysis.get('has_forms')}, native_ratio={analysis.get('native_ratio', 0):.1%}, handwriting_ratio={analysis.get('handwriting_ratio', 0):.1%}")
 
         # Step 2: Intelligent routing
         accuracy_mode = accuracy_mode or self.accuracy_mode
@@ -181,6 +182,7 @@ class HybridDocumentProcessor:
         routing_info = router.explain_routing(analysis)
         logger.info(f"  Primary processor: {routing_info['primary_processor']}")
         logger.info(f"  Reasoning: {routing_info['reasoning']}")
+        logger.info(f"  VQA questions: {len(vqa_questions) if vqa_questions else 0}")
         logger.info(f"  Enrichment: {'enabled' if self.enable_enrichment and routing_info['enrichment_recommended'] else 'disabled'}")
 
         # Step 3: Primary processing (OPTIMIZED - no duplication)
