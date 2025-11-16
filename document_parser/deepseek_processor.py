@@ -74,7 +74,7 @@ class DeepSeekProcessor(BaseProcessor):
                 url=self.vllm_url,
                 params={
                     "model": self.model_id,
-                    "max_tokens": 8192,
+                    "max_tokens": 4096,  # Conservative limit (model max is 8192 total including input)
                     "temperature": 0.0,  # Deterministic output
                     "top_p": 0.9,  # Slightly higher for better quality
                 },
