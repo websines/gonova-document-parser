@@ -143,7 +143,7 @@ def start_worker(queue_names: list[str] = None, burst: bool = False):
 
     logger.success(f"Worker started: {worker.name}")
 
-    worker.work(burst=burst, with_scheduler=True)
+    worker.work(burst=burst, with_scheduler=False)
 
 
 if __name__ == "__main__":
