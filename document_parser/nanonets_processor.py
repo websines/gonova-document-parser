@@ -81,8 +81,9 @@ class NanonetsProcessor(BaseProcessor):
                 prompt=self.DEFAULT_PROMPT,
                 response_format=ResponseFormat.MARKDOWN,
                 temperature=0.0,
+                timeout=600,  # 10 minute timeout for slow models/large docs
             )
-            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for handwriting/forms)")
+            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for handwriting/forms, timeout=600s)")
         else:
             # Direct Transformers mode
             vlm_options = InlineVlmOptions(

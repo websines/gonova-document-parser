@@ -81,8 +81,9 @@ class DeepSeekProcessor(BaseProcessor):
                 prompt=self.PROMPTS[self.resolution_mode],
                 response_format=ResponseFormat.MARKDOWN,
                 temperature=0.0,
+                timeout=600,  # 10 minute timeout for large documents
             )
-            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for quality)")
+            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for quality, timeout=600s)")
         else:
             # Direct Transformers mode
             vlm_options = InlineVlmOptions(
