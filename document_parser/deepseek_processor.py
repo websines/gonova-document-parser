@@ -159,7 +159,8 @@ class DeepSeekProcessor(BaseProcessor):
             if output_format == "markdown":
                 output = result.document.export_to_markdown()
             elif output_format == "json":
-                output = result.document.export_to_json()
+                import json
+                output = json.dumps(result.document.export_to_dict(), indent=2)
             elif output_format == "html":
                 output = result.document.export_to_html()
             else:
