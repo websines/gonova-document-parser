@@ -7,9 +7,9 @@ from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import fitz  # PyMuPDF
 from loguru import logger
 from openai import AsyncOpenAI
-from pdf2image import convert_from_path
 from PIL import Image
 from pypdf import PdfReader
 
@@ -78,11 +78,9 @@ class AsyncVlmProcessor:
 
         logger.info(f"Processing {pdf_path.name} with per-page routing...")
 
-        # Step 1: Convert PDF to images (thread pool to avoid blocking)
+        # Step 1: Convert PDF to images using PyMuPDF (much faster than pdf2image)
         logger.info("Step 1: Converting PDF to images...")
-        images = await asyncio.to_thread(
-            convert_from_path, str(pdf_path), dpi=200, thread_count=4
-        )
+        images = await asyncio.to_thread(self._convert_pdf_to_images, str(pdf_path))
         logger.info(f"  Converted {len(images)} pages to images")
 
         # Step 2: Classify each page (fast, < 0.5s total)
@@ -239,6 +237,39 @@ class AsyncVlmProcessor:
         logger.info(f"  {model_name}: Completed {len(results)} pages")
 
         return dict(results)
+
+    def _convert_pdf_to_images(self, pdf_path: str, dpi: int = 150) -> List[Image.Image]:
+        """
+        Convert PDF to images using PyMuPDF (3-5x faster than pdf2image).
+
+        Args:
+            pdf_path: Path to PDF file
+            dpi: Resolution for rendering (default 150, good balance of speed/quality)
+
+        Returns:
+            List of PIL Images
+        """
+        images = []
+        doc = fitz.open(pdf_path)
+
+        try:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+
+                # Convert DPI to zoom factor (72 is default DPI)
+                zoom = dpi / 72
+                mat = fitz.Matrix(zoom, zoom)
+
+                # Render page to pixmap
+                pix = page.get_pixmap(matrix=mat)
+
+                # Convert to PIL Image
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                images.append(img)
+        finally:
+            doc.close()
+
+        return images
 
     def _merge_pages(self, results: Dict[int, str], output_format: str) -> str:
         """
