@@ -781,8 +781,8 @@ def main():
 
     uvicorn.run(
         "document_parser.api:app",
-        host="0.0.0.0",
-        port=8080,
+        host=settings.api_host,
+        port=settings.api_port,
         reload=True,
         log_level="info",
     )
