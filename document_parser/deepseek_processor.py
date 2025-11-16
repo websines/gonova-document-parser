@@ -203,23 +203,24 @@ class DeepSeekProcessor(BaseProcessor):
             )
 
     def _extract_nodes(self, document) -> list:
-        """Extract graph nodes from Docling document."""
+        """Extract graph nodes from Docling document using iterate_items()."""
         nodes = []
-        for idx, element in enumerate(document.elements):
+        for idx, (item, level) in enumerate(document.iterate_items()):
             node = {
                 "id": f"node_{idx}",
-                "type": element.type if hasattr(element, "type") else "unknown",
-                "content": str(element),
-                "page": element.page if hasattr(element, "page") else None,
+                "type": str(item.label) if hasattr(item, "label") else "unknown",
+                "content": item.text if hasattr(item, "text") else str(item),
+                "page": item.prov[0].page_no if hasattr(item, "prov") and item.prov else None,
+                "level": level,
             }
 
             # Add type-specific attributes
-            if hasattr(element, "text"):
-                node["text"] = element.text
-            if hasattr(element, "data"):
-                node["data"] = element.data
-            if hasattr(element, "caption"):
-                node["caption"] = element.caption
+            if hasattr(item, "text"):
+                node["text"] = item.text
+            if hasattr(item, "data"):
+                node["data"] = item.data
+            if hasattr(item, "caption"):
+                node["caption"] = item.caption
 
             nodes.append(node)
 
@@ -230,7 +231,8 @@ class DeepSeekProcessor(BaseProcessor):
         edges = []
 
         # Simple sequential relationships
-        for i in range(len(document.elements) - 1):
+        items = list(document.iterate_items())
+        for i in range(len(items) - 1):
             edges.append(
                 {
                     "source": f"node_{i}",
