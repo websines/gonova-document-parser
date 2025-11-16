@@ -155,7 +155,7 @@ async def startup_event():
     processor = HybridDocumentProcessor(
         accuracy_mode=settings.default_accuracy_mode,
         inference_mode=settings.inference_mode,
-        enable_enrichment=True,
+        enable_enrichment=settings.enable_enrichment,
         enable_embeddings=False,  # Will be enabled per-request
     )
 

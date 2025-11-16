@@ -152,7 +152,7 @@ class HybridDocumentProcessor:
         extract_signatures: Optional[bool] = None,
     ) -> GraphDocument:
         """
-        Process PDF document with hybrid approach.
+        Process PDF document with optimized hybrid approach.
 
         Args:
             pdf_path: Path to PDF file
@@ -181,19 +181,24 @@ class HybridDocumentProcessor:
         routing_info = router.explain_routing(analysis)
         logger.info(f"  Primary processor: {routing_info['primary_processor']}")
         logger.info(f"  Reasoning: {routing_info['reasoning']}")
-        logger.info(f"  Enrichment recommended: {routing_info['enrichment_recommended']}")
+        logger.info(f"  Enrichment: {'enabled' if self.enable_enrichment and routing_info['enrichment_recommended'] else 'disabled'}")
 
-        # Step 3: Primary processing
+        # Step 3: Primary processing (OPTIMIZED - no duplication)
         logger.info("\nStep 3: Primary processing...")
         primary_processor_type = ProcessorType(routing_info["primary_processor"])
 
-        if primary_processor_type == ProcessorType.NANONETS:
+        # OPTIMIZATION: If we need VQA and routing to Nanonets anyway, do it in one pass
+        if primary_processor_type == ProcessorType.NANONETS or (vqa_questions and primary_processor_type != ProcessorType.NANONETS):
+            # Use Nanonets for everything (OCR + VQA in single pass)
+            logger.info("  Using Nanonets (handles both OCR and VQA in single pass)")
             result = self.nanonets.process(
                 str(pdf_path),
                 output_format=output_format,
                 vqa_questions=vqa_questions,
             )
-        else:  # Default to DeepSeek
+        else:
+            # Use DeepSeek for fast processing (no VQA needed)
+            logger.info("  Using DeepSeek (fast processing)")
             result = self.deepseek.process(
                 str(pdf_path),
                 output_format=output_format,
@@ -203,33 +208,24 @@ class HybridDocumentProcessor:
             logger.error(f"Primary processing failed: {result.error}")
             return self._create_error_document(pdf_path, result.error)
 
-        logger.success(f"  Processed {result.metadata.get('num_pages', 0)} pages")
+        logger.success(f"  Processed {result.metadata.get('num_pages', 0)} pages in {result.metadata.get('processing_time', 0):.1f}s")
+        if vqa_questions and result.metadata.get("vqa_answers"):
+            logger.success(f"  Answered {len(vqa_questions)} VQA questions")
 
-        # Step 4: VQA processing (if needed and not already done)
-        if vqa_questions and primary_processor_type != ProcessorType.NANONETS:
-            logger.info("\nStep 4: VQA processing...")
-            vqa_result = self.nanonets.process(
-                str(pdf_path),
-                output_format=output_format,
-                vqa_questions=vqa_questions,
-            )
-            if vqa_result.success and vqa_result.metadata.get("vqa_answers"):
-                result.metadata["vqa_answers"] = vqa_result.metadata["vqa_answers"]
-                logger.success(f"  Answered {len(vqa_questions)} VQA questions")
-
-        # Step 5: Enrichment (if recommended)
+        # Step 4: Enrichment (if recommended) - SKIP if disabled globally
         if self.enable_enrichment and routing_info["enrichment_recommended"]:
-            logger.info("\nStep 5: Semantic enrichment with Granite...")
+            logger.info("\nStep 4: Semantic enrichment with Granite...")
             result = self.granite.enrich(result)
             logger.info("  Enrichment completed")
 
-        # Step 6: Create graph document
-        logger.info("\nStep 6: Creating graph-ready output...")
+        # Step 5: Create graph document
+        logger.info(f"\n{'Step 5' if self.enable_enrichment and routing_info['enrichment_recommended'] else 'Step 4'}: Creating graph-ready output...")
         graph_doc = self._create_graph_document(pdf_path, result, routing_info)
 
-        # Step 7: Generate embeddings (if enabled)
+        # Step 6: Generate embeddings (if enabled)
         if self.enable_embeddings:
-            logger.info("\nStep 7: Generating embeddings with Qwen3...")
+            step_num = 6 if self.enable_enrichment and routing_info["enrichment_recommended"] else 5
+            logger.info(f"\nStep {step_num}: Generating embeddings with Qwen3...")
             graph_doc.nodes = self.embedding.embed_nodes(graph_doc.nodes)
             logger.info(f"  Generated {len(graph_doc.nodes)} embeddings")
             graph_doc.metadata["embeddings_generated"] = True

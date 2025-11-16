@@ -29,7 +29,7 @@ class NanonetsProcessor(BaseProcessor):
     - Financial document optimization
     """
 
-    DEFAULT_PROMPT = "Convert this document to markdown-financial-docs format."
+    DEFAULT_PROMPT = "Convert this document to high-quality markdown format. Preserve all text including handwritten content, signatures, checkboxes, tables with correct alignment, and maintain precise formatting. Use proper markdown syntax for headings, lists, emphasis, and tables."
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -68,19 +68,21 @@ class NanonetsProcessor(BaseProcessor):
         logger.info(f"Loading Nanonets-OCR2-3B ({self.inference_mode})...")
 
         if self.inference_mode == InferenceMode.VLLM:
-            # vLLM server mode
+            # vLLM server mode - optimized for handwriting and forms
             vlm_options = ApiVlmOptions(
                 url=self.vllm_url,
                 params={
                     "model": self.model_id,
-                    "max_tokens": 15000,  # Nanonets uses more tokens
-                    "repetition_penalty": 1.0,  # For financial docs
+                    "max_tokens": 15000,  # Nanonets supports longer contexts
+                    "temperature": 0.0,  # Deterministic for accuracy
+                    "top_p": 0.95,  # Higher for better handwriting recognition
+                    "repetition_penalty": 1.05,  # Prevent repetition in OCR
                 },
                 prompt=self.DEFAULT_PROMPT,
                 response_format=ResponseFormat.MARKDOWN,
                 temperature=0.0,
             )
-            logger.info(f"Using vLLM server at {self.vllm_url}")
+            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for handwriting/forms)")
         else:
             # Direct Transformers mode
             vlm_options = InlineVlmOptions(
@@ -94,10 +96,23 @@ class NanonetsProcessor(BaseProcessor):
             )
             logger.info(f"Using Transformers with model {self.model_id}")
 
-        pipeline_options = VlmPipelineOptions(
-            vlm_options=vlm_options,
-            enable_remote_services=(self.inference_mode == InferenceMode.VLLM),
-        )
+        # OPTIMIZATION: Enable batching for vLLM
+        # Nanonets is slower but handles complex content (handwriting, forms)
+        # Use moderate batch size to balance speed and quality
+        if self.inference_mode == InferenceMode.VLLM:
+            from docling.datamodel.settings import settings as docling_settings
+            docling_settings.perf.page_batch_size = 16  # Moderate batching (Nanonets is heavier)
+
+            pipeline_options = VlmPipelineOptions(
+                vlm_options=vlm_options,
+                enable_remote_services=True,
+                concurrency=16,  # Process 16 pages concurrently
+            )
+        else:
+            pipeline_options = VlmPipelineOptions(
+                vlm_options=vlm_options,
+                enable_remote_services=False,
+            )
 
         self.converter = DocumentConverter(
             format_options={

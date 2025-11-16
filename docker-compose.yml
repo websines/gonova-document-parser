@@ -1,26 +1,11 @@
 version: '3.8'
 
-# Full deployment: API server + vLLM backends
-# Optimized for NVIDIA 3090 (24GB VRAM)
+# Document Parser API - Connects to external services
+# Prerequisites:
+# - vLLM servers running at localhost:4444, 4445, 4446
+# - Redis running at localhost:6379
 
 services:
-  # Redis for job queue persistence
-  redis:
-    image: redis:7-alpine
-    container_name: docparser-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - docparser
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   # Document Processing API Server
   api:
     build:
@@ -40,158 +25,46 @@ services:
       - INFERENCE_MODE=vllm
       - ENABLE_ENRICHMENT=true
 
-      # vLLM Endpoints
-      - VLLM_DEEPSEEK_URL=http://vllm-deepseek:8000/v1
-      - VLLM_NANONETS_URL=http://vllm-nanonets:8001/v1
-      - VLLM_GRANITE_URL=http://vllm-granite:8002/v1
+      # External vLLM Endpoints (running on host)
+      - VLLM_DEEPSEEK_URL=http://host.docker.internal:4444/v1/chat/completions
+      - VLLM_NANONETS_URL=http://host.docker.internal:4445/v1/chat/completions
+      - VLLM_GRANITE_URL=http://host.docker.internal:4446/v1/chat/completions
+      - VLLM_API_KEY=EMPTY
 
-      # Redis
-      - REDIS_URL=redis://redis:6379/0
+      # External Redis (running on host)
+      - REDIS_URL=redis://host.docker.internal:6379/0
 
-      # GPU Configuration (if running directly on host)
-      - CUDA_VISIBLE_DEVICES=0
-      - TORCH_DEVICE=cpu  # API doesn't need GPU
+      # No GPU needed for API (vLLM runs externally)
+      - TORCH_DEVICE=cpu
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    depends_on:
-      redis:
-        condition: service_healthy
-      vllm-deepseek:
-        condition: service_started
-    networks:
-      - docparser
-
-  # DeepSeek-OCR vLLM Server (Primary processor)
-  vllm-deepseek:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-deepseek
-    ports:
-      - "8000:8000"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    command:
-      - --model=deepseek-ai/DeepSeek-OCR
-      - --host=0.0.0.0
-      - --port=8000
-      - --dtype=bfloat16
-      - --gpu-memory-utilization=0.85
-      - --max-model-len=8192
-      - --tensor-parallel-size=1
-      - --trust-remote-code
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    shm_size: 8gb
-    networks:
-      - docparser
-    profiles:
-      - deepseek
-      - full
-
-  # Nanonets-OCR2-3B vLLM Server (Handwriting/Signatures)
-  # Note: Start this separately when needed (not simultaneously with DeepSeek on 3090)
-  vllm-nanonets:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-nanonets
-    ports:
-      - "8001:8000"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    command:
-      - --model=nanonets/Nanonets-OCR2-3B
-      - --host=0.0.0.0
-      - --port=8000
-      - --dtype=bfloat16
-      - --gpu-memory-utilization=0.85
-      - --max-model-len=15000
-      - --tensor-parallel-size=1
-      - --trust-remote-code
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    shm_size: 8gb
-    networks:
-      - docparser
-    profiles:
-      - nanonets
-
-  # Granite-Docling vLLM Server (Enrichment - smallest model)
-  vllm-granite:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-granite
-    ports:
-      - "8002:8000"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    command:
-      - --model=ibm-granite/granite-docling-258m
-      - --host=0.0.0.0
-      - --port=8000
-      - --dtype=bfloat16
-      - --gpu-memory-utilization=0.5
-      - --max-model-len=8192
-      - --tensor-parallel-size=1
-      - --trust-remote-code
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    shm_size: 4gb
-    networks:
-      - docparser
-    profiles:
-      - granite
-
-networks:
-  docparser:
-    driver: bridge
-
-volumes:
-  redis-data:
-    driver: local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 # ==============================================================================
 # Usage Instructions
 # ==============================================================================
 #
-# For NVIDIA 3090 (24GB), run ONE vLLM service at a time:
+# Prerequisites:
+# - vLLM servers running on host at ports 4444, 4445, 4446
+# - Redis running on host at port 6379
 #
-# 1. Start API + DeepSeek (for standard documents):
-#    docker compose --profile deepseek up -d
+# Start the API server:
+#   docker compose up -d
 #
-# 2. Stop DeepSeek and start Nanonets (for handwriting):
-#    docker compose stop vllm-deepseek
-#    docker compose --profile nanonets up -d vllm-nanonets
+# Or run directly (no Docker):
+#   uvicorn document_parser.api:app --host 0.0.0.0 --port 8080
 #
-# 3. Check logs:
-#    docker compose logs -f api
-#    docker compose logs -f vllm-deepseek
+# Check logs:
+#   docker compose logs -f api
 #
-# 4. Access API:
-#    - API: http://localhost:8080
-#    - Docs: http://localhost:8080/docs
-#    - Health: http://localhost:8080/health
+# Access API:
+#   - API: http://localhost:8080
+#   - Docs: http://localhost:8080/docs
+#   - Health: http://localhost:8080/health
 #
-# 5. Stop all:
-#    docker compose down
+# Stop:
+#   docker compose down
 #
 # ==============================================================================

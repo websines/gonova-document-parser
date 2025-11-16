@@ -91,6 +91,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable handwriting detection (Nanonets)",
     )
+    enable_enrichment: bool = Field(
+        default=False,
+        description="Enable Granite semantic enrichment (slower but better structure)",
+    )
 
     # Output Configuration
     output_dir: Path = Field(default=Path("./output"), description="Output directory")

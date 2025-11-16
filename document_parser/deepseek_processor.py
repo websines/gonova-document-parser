@@ -31,8 +31,8 @@ class DeepSeekProcessor(BaseProcessor):
 
     PROMPTS = {
         "base": "<image>\n<|grounding|>Convert to markdown.",
-        "gundam": "<image>\n<|grounding|>Convert to markdown, preserve table structure.",
-        "gundam-m": "<image>\n<|grounding|>Convert to markdown with high fidelity for complex tables and charts.",
+        "gundam": "<image>\n<|grounding|>Convert to markdown with proper formatting. Preserve table structure, headers, and formatting. Use proper markdown syntax for headings, lists, and emphasis.",
+        "gundam-m": "<image>\n<|grounding|>Convert to markdown with maximum fidelity. Preserve complex tables with correct alignment, multi-level headers, nested lists, code blocks, and mathematical equations. Maintain document structure and formatting precisely.",
     }
 
     def __init__(self, config: Dict[str, Any]):
@@ -69,15 +69,20 @@ class DeepSeekProcessor(BaseProcessor):
         logger.info(f"Loading DeepSeek-OCR ({self.inference_mode})...")
 
         if self.inference_mode == InferenceMode.VLLM:
-            # vLLM server mode
+            # vLLM server mode - optimized for quality and speed
             vlm_options = ApiVlmOptions(
                 url=self.vllm_url,
-                params={"model": self.model_id, "max_tokens": 8192},
+                params={
+                    "model": self.model_id,
+                    "max_tokens": 8192,
+                    "temperature": 0.0,  # Deterministic output
+                    "top_p": 0.9,  # Slightly higher for better quality
+                },
                 prompt=self.PROMPTS[self.resolution_mode],
                 response_format=ResponseFormat.MARKDOWN,
                 temperature=0.0,
             )
-            logger.info(f"Using vLLM server at {self.vllm_url}")
+            logger.info(f"Using vLLM server at {self.vllm_url} (optimized for quality)")
         else:
             # Direct Transformers mode
             vlm_options = InlineVlmOptions(
@@ -91,10 +96,25 @@ class DeepSeekProcessor(BaseProcessor):
             )
             logger.info(f"Using Transformers with model {self.model_id}")
 
-        pipeline_options = VlmPipelineOptions(
-            vlm_options=vlm_options,
-            enable_remote_services=(self.inference_mode == InferenceMode.VLLM),
-        )
+        # OPTIMIZATION: Enable batching and concurrency for vLLM
+        # Based on research: Docling supports page_batch_size and concurrency
+        # For vLLM servers, we can process 20-64 pages in parallel
+        if self.inference_mode == InferenceMode.VLLM:
+            # Use higher batch size for vLLM (server handles batching efficiently)
+            from docling.datamodel.settings import settings as docling_settings
+            docling_settings.perf.page_batch_size = 32  # Optimal for 3090 (default is 4)
+
+            pipeline_options = VlmPipelineOptions(
+                vlm_options=vlm_options,
+                enable_remote_services=True,
+                concurrency=32,  # Process 32 pages concurrently via vLLM
+            )
+        else:
+            # Lower batch size for local transformers (memory constraints)
+            pipeline_options = VlmPipelineOptions(
+                vlm_options=vlm_options,
+                enable_remote_services=False,
+            )
 
         self.converter = DocumentConverter(
             format_options={
