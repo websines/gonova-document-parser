@@ -171,7 +171,7 @@ async def startup_event():
         worker_processes.append(p)
         logger.success(f"Started worker {i+1} (PID: {p.pid})")
 
-    logger.info(f"Job queue initialized (using Redis: {job_queue.use_redis})")
+    logger.info(f"Job queue initialized on Redis: {settings.redis_url}")
 
     # Initialize processor (embeddings off by default, enabled per-request)
     processor = HybridDocumentProcessor(
