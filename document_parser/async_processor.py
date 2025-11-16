@@ -191,15 +191,14 @@ class AsyncVlmProcessor:
                                             },
                                             {
                                                 "type": "text",
-                                                "text": "Convert this page to markdown. Preserve tables, headings, lists, and text formatting accurately.",
+                                                "text": "Extract all text from this page in markdown format.",
                                             },
                                         ],
                                     }
                                 ],
                                 max_tokens=4096,
-                                temperature=0.1,
+                                temperature=0.2,  # Slightly higher to avoid repetition
                                 top_p=0.95,
-                                extra_body={"repetition_penalty": 1.1},  # vLLM-specific parameter
                             ),
                             timeout=self.timeout,
                         )
