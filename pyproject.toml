@@ -1,7 +1,7 @@
 [project]
 name = "document-parser"
 version = "0.1.0"
-description = "Hybrid document processing system for financial/legal documents with agentic RAG integration"
+description = "Hybrid document processing API that connects to external vLLM servers for high-accuracy OCR and markdown conversion"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "docling[vlm]>=2.0.0",
@@ -19,13 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vllm = [
-    "vllm>=0.6.0",
-    "openai>=1.0.0",
-]
+# NOTE: vLLM is NOT needed locally - it runs externally on your host machine
+# This app only connects to vLLM servers via OpenAI-compatible HTTP API
 api = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "openai>=1.0.0",  # For OpenAI-compatible API client
 ]
 db = [
     "neo4j>=5.0.0",

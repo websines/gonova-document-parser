@@ -14,9 +14,9 @@ echo "     - Granite: localhost:4446/v1"
 echo "   ✓ Redis running at: localhost:6379"
 echo ""
 echo "🌐 API will be available at:"
-echo "   - Main API: http://localhost:8080"
-echo "   - Swagger Docs: http://localhost:8080/docs"
-echo "   - Health: http://localhost:8080/health"
+echo "   - Main API: http://localhost:1233"
+echo "   - Swagger Docs: http://localhost:1233/docs"
+echo "   - Health: http://localhost:1233/health"
 echo ""
 
 # Check if Redis is running
@@ -26,5 +26,5 @@ if ! redis-cli ping > /dev/null 2>&1; then
     echo ""
 fi
 
-# Start the API
-uvicorn document_parser.api:app --host 0.0.0.0 --port 8080 --log-level info
+# Start the API (port from .env or override with: --port 1233)
+uvicorn document_parser.api:app --host 0.0.0.0 --port 1233 --log-level info
