@@ -1,15 +1,14 @@
 [project]
 name = "document-parser"
 version = "0.1.0"
-description = "Hybrid document processing API that connects to external vLLM servers for high-accuracy OCR and markdown conversion"
+description = "Per-page routed document processing API using DeepSeek-OCR and Nanonets-OCR2 via external vLLM servers"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "docling[vlm]>=2.0.0",
-    "transformers>=4.46.0",
-    "torch>=2.6.0",
+    # Core async processing (no Docling - uses pure async + vLLM)
+    "openai>=1.0.0",  # AsyncOpenAI for vLLM communication
     "pillow>=10.0.0",
-    "pypdf>=5.0.0",
-    "pdf2image>=1.17.0",
+    "pypdf>=5.0.0",  # Fast per-page classification
+    "pdf2image>=1.17.0",  # PDF to image conversion
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
@@ -24,11 +23,22 @@ dependencies = [
 api = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "openai>=1.0.0",  # For OpenAI-compatible API client
 ]
 db = [
     "neo4j>=5.0.0",
     "redis>=5.0.0",
+]
+legacy = [
+    # Legacy Docling-based processors (deepseek_processor.py, nanonets_processor.py)
+    # NOT used by default - async_processor.py is now the primary processor
+    "docling[vlm]>=2.0.0",
+    "transformers>=4.46.0",
+    "torch>=2.6.0",
+]
+enrichment = [
+    # Optional Granite enrichment layer
+    "transformers>=4.46.0",
+    "torch>=2.6.0",
 ]
 dev = [
     "pytest>=8.0.0",
