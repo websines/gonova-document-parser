@@ -123,7 +123,7 @@ class HybridDocumentProcessor:
             )
         return self._embedding
 
-    def process(
+    async def process(
         self,
         pdf_path: str | Path,
         output_format: str = "markdown",
@@ -164,10 +164,8 @@ class HybridDocumentProcessor:
         logger.info("  DeepSeek: Standard pages (fast)")
         logger.info("  Nanonets: Legal pages, forms, signatures (specialized)")
 
-        # Run async processing
-        result = asyncio.run(
-            self.async_processor.process_pdf(str(pdf_path), output_format)
-        )
+        # Run async processing (we're already in async context)
+        result = await self.async_processor.process_pdf(str(pdf_path), output_format)
 
         # Extract metadata
         metadata = result["metadata"]
