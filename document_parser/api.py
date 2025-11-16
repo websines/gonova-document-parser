@@ -203,7 +203,7 @@ async def process_document_task(job_id: str, pdf_path: Path):
         processor.enable_embeddings = generate_embeddings
 
         try:
-            result: GraphDocument = processor.process(
+            result: GraphDocument = await processor.process(
                 pdf_path=pdf_path,
                 output_format=job.output_format,
                 accuracy_mode=AccuracyMode(job.accuracy_mode),
@@ -532,7 +532,7 @@ async def process_document_sync(
         processor.enable_embeddings = generate_embeddings
 
         try:
-            result: GraphDocument = processor.process(
+            result: GraphDocument = await processor.process(
                 pdf_path=pdf_path,
                 output_format=output_format,
                 accuracy_mode=AccuracyMode(accuracy_mode),
