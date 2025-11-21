@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from document_parser.config import AccuracyMode, InferenceMode, settings
+from document_parser.config import settings
 from document_parser.hybrid_processor import GraphDocument, HybridDocumentProcessor
 from document_parser.job_manager import JobManager, JobStatus
 from document_parser.worker import process_pdf_job
@@ -54,25 +54,13 @@ class ProcessingStatus(str, Enum):
 class ProcessDocumentRequest(BaseModel):
     """Request to process a document."""
 
-    accuracy_mode: Optional[str] = Field(
-        default="balanced",
-        description="Accuracy mode: fast, balanced, or maximum",
-    )
     output_format: Optional[str] = Field(
         default="json",
         description="Output format: markdown, json, or html",
     )
-    vqa_questions: Optional[List[str]] = Field(
-        default=None,
-        description="Optional VQA questions to answer",
-    )
-    extract_signatures: Optional[bool] = Field(
-        default=None,
-        description="Enable signature detection",
-    )
-    enable_enrichment: Optional[bool] = Field(
-        default=True,
-        description="Enable Granite semantic enrichment",
+    generate_embeddings: Optional[bool] = Field(
+        default=False,
+        description="Generate Qwen3 embeddings for nodes",
     )
 
 
@@ -175,9 +163,6 @@ async def startup_event():
 
     # Initialize processor (embeddings off by default, enabled per-request)
     processor = HybridDocumentProcessor(
-        accuracy_mode=settings.default_accuracy_mode,
-        inference_mode=settings.inference_mode,
-        enable_enrichment=settings.enable_enrichment,
         enable_embeddings=False,  # Will be enabled per-request
     )
 
@@ -242,9 +227,6 @@ async def process_document_task(job_id: str, pdf_path: Path):
             result: GraphDocument = await processor.process(
                 pdf_path=pdf_path,
                 output_format=job.output_format,
-                accuracy_mode=AccuracyMode(job.accuracy_mode),
-                vqa_questions=job.vqa_questions,
-                extract_signatures=job.extract_signatures,
             )
         finally:
             # Restore original setting
@@ -320,9 +302,10 @@ async def health():
         version="1.0.0",
         processors=processor.get_status()["processors_loaded"] if processor else {},
         config={
-            "accuracy_mode": settings.default_accuracy_mode.value,
-            "inference_mode": settings.inference_mode.value,
-            "device": settings.torch_device,
+            "model": settings.mineru_model,
+            "vllm_url": settings.mineru_vllm_url,
+            "batch_size": settings.batch_size,
+            "concurrency": settings.concurrency,
         },
     )
 
@@ -333,30 +316,25 @@ async def health():
     tags=["Processing"],
     summary="Process a PDF document",
     description="""
-    Upload and process a PDF document with hybrid processing.
+    Upload and process a PDF document with MinerU 2.5.
 
     Returns a job ID for tracking progress. Use /v1/jobs/{job_id} to check status.
-
-    **Accuracy Modes:**
-    - `fast`: 3000-5000 pages/day, good accuracy
-    - `balanced`: 2000-3000 pages/day, very good accuracy (recommended)
-    - `maximum`: 1000-1500 pages/day, excellent accuracy
 
     **Output Formats:**
     - `json`: Graph-ready structure with nodes and edges
     - `markdown`: Human-readable markdown
     - `html`: Web-ready HTML
+
+    **Performance:**
+    - Single 1.2B model processes all document types
+    - 2-3x faster than old multi-model system
+    - 60-70% less VRAM usage
     """,
 )
 async def process_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to process"),
-    accuracy_mode: str = Form("balanced", description="Accuracy mode"),
     output_format: str = Form("json", description="Output format"),
-    vqa_questions: Optional[str] = Form(
-        None, description="Comma-separated VQA questions"
-    ),
-    extract_signatures: Optional[bool] = Form(None, description="Extract signatures"),
     generate_embeddings: bool = Form(False, description="Generate Qwen3 embeddings"),
 ):
     """Process a PDF document."""
@@ -372,11 +350,6 @@ async def process_document(
     content = await file.read()
     pdf_path.write_bytes(content)
 
-    # Parse VQA questions
-    vqa_list = None
-    if vqa_questions:
-        vqa_list = [q.strip() for q in vqa_questions.split(",")]
-
     # Create job
     from document_parser.queue import Job, JobStatus
 
@@ -385,10 +358,10 @@ async def process_document(
         filename=file.filename,
         status=JobStatus.PENDING,
         created_at=time.time(),
-        accuracy_mode=accuracy_mode,
+        accuracy_mode="mineru",  # For backward compatibility
         output_format=output_format,
-        vqa_questions=vqa_list,
-        extract_signatures=extract_signatures,
+        vqa_questions=None,
+        extract_signatures=None,
         metadata={"generate_embeddings": generate_embeddings},
     )
 
@@ -540,10 +513,7 @@ async def delete_job(job_id: str):
 )
 async def process_document_sync(
     file: UploadFile = File(...),
-    accuracy_mode: str = Form("balanced"),
     output_format: str = Form("json"),
-    vqa_questions: Optional[str] = Form(None),
-    extract_signatures: Optional[bool] = Form(None),
     generate_embeddings: bool = Form(False),
 ):
     """Process document synchronously."""
@@ -558,11 +528,6 @@ async def process_document_sync(
     pdf_path.write_bytes(content)
 
     try:
-        # Parse VQA questions
-        vqa_list = None
-        if vqa_questions:
-            vqa_list = [q.strip() for q in vqa_questions.split(",")]
-
         # Process document (temporarily enable embeddings if requested)
         original_embeddings_setting = processor.enable_embeddings
         processor.enable_embeddings = generate_embeddings
@@ -571,9 +536,6 @@ async def process_document_sync(
             result: GraphDocument = await processor.process(
                 pdf_path=pdf_path,
                 output_format=output_format,
-                accuracy_mode=AccuracyMode(accuracy_mode),
-                vqa_questions=vqa_list,
-                extract_signatures=extract_signatures,
             )
         finally:
             processor.enable_embeddings = original_embeddings_setting
@@ -616,6 +578,8 @@ async def process_document_sync(
     - Multiple concurrent uploads
     - Avoiding timeouts
 
+    Uses MinerU 2.5 for fast, accurate processing.
+
     Use GET /v1/jobs/{job_id}/status to check progress.
     Use GET /v1/jobs/{job_id}/result to download markdown when complete.
     """,
@@ -623,7 +587,6 @@ async def process_document_sync(
 )
 async def process_document_async(
     file: UploadFile = File(...),
-    accuracy_mode: str = Form("balanced"),
     output_format: str = Form("markdown"),
     generate_embeddings: bool = Form(False),
 ):
@@ -645,7 +608,6 @@ async def process_document_async(
         job_id=job_id,
         filename=file.filename,
         metadata={
-            "accuracy_mode": accuracy_mode,
             "output_format": output_format,
             "generate_embeddings": generate_embeddings,
         },
@@ -656,7 +618,6 @@ async def process_document_async(
         process_pdf_job,
         job_id,  # Positional arg
         str(pdf_path),  # Positional arg
-        accuracy_mode=accuracy_mode,
         output_format=output_format,
         generate_embeddings=generate_embeddings,
         job_timeout="30m",  # 30 minute timeout for very large PDFs
@@ -756,18 +717,14 @@ async def delete_job(job_id: str):
     "/v1/capabilities",
     tags=["Info"],
     summary="Get processor capabilities",
-    description="Get detailed information about processor capabilities",
+    description="Get detailed information about MinerU processor capabilities",
 )
 async def get_capabilities():
     """Get processor capabilities."""
     if not processor:
         raise HTTPException(status_code=503, detail="Processor not initialized")
 
-    return {
-        "deepseek": processor.deepseek.get_capabilities(),
-        "nanonets": processor.nanonets.get_capabilities(),
-        "granite": processor.granite.get_capabilities(),
-    }
+    return processor.get_status()
 
 
 # ============================================================================

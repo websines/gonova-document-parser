@@ -9,7 +9,7 @@ from loguru import logger
 from rq import Worker, Queue
 import redis
 
-from document_parser.config import AccuracyMode, settings
+from document_parser.config import settings
 from document_parser.hybrid_processor import HybridDocumentProcessor
 from document_parser.job_manager import JobManager
 
@@ -22,19 +22,17 @@ logger.add(sys.stderr, level=settings.log_level)
 def process_pdf_job(
     job_id: str,
     pdf_path: str,
-    accuracy_mode: str = "balanced",
     output_format: str = "markdown",
     generate_embeddings: bool = False,
 ):
     """
-    Process a PDF file and store result in Redis.
+    Process a PDF file with MinerU and store result in Redis.
 
     This function is executed by RQ workers.
 
     Args:
         job_id: Unique job identifier
         pdf_path: Path to uploaded PDF file
-        accuracy_mode: Processing accuracy mode
         output_format: Output format (markdown, json, html)
         generate_embeddings: Whether to generate embeddings
 
@@ -47,11 +45,10 @@ def process_pdf_job(
         # Update status to processing
         job_manager.update_status(job_id, "processing")
 
-        logger.info(f"[Job {job_id}] Starting processing: {pdf_path}")
+        logger.info(f"[Job {job_id}] Starting processing with MinerU 2.5: {pdf_path}")
 
         # Initialize processor
         processor = HybridDocumentProcessor(
-            accuracy_mode=AccuracyMode(accuracy_mode),
             enable_embeddings=generate_embeddings,
         )
 
@@ -76,14 +73,15 @@ def process_pdf_job(
             progress={
                 "total_pages": result.metadata.get("num_pages", 0),
                 "processing_time": result.metadata.get("processing_time", 0),
-                "deepseek_pages": result.metadata.get("deepseek_pages", 0),
-                "nanonets_pages": result.metadata.get("nanonets_pages", 0),
+                "pages_per_second": result.metadata.get("pages_per_second", 0),
+                "model": result.metadata.get("model", "MinerU2.5-1.2B"),
             },
         )
 
         logger.success(
             f"[Job {job_id}] Completed: {result.metadata.get('num_pages', 0)} pages "
-            f"in {result.metadata.get('processing_time', 0):.1f}s"
+            f"in {result.metadata.get('processing_time', 0):.1f}s "
+            f"({result.metadata.get('pages_per_second', 0):.2f} pages/sec)"
         )
 
         # Cleanup PDF file

@@ -8,19 +8,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class InferenceMode(str, Enum):
-    """Inference mode for model execution."""
+class OutputFormat(str, Enum):
+    """Output format for processed documents."""
 
-    TRANSFORMERS = "transformers"  # Direct HuggingFace Transformers
-    VLLM = "vllm"  # vLLM server (faster, batching)
-
-
-class AccuracyMode(str, Enum):
-    """Accuracy mode for document processing."""
-
-    FAST = "fast"  # DeepSeek-OCR only (fastest)
-    BALANCED = "balanced"  # Hybrid routing (recommended)
-    MAXIMUM = "maximum"  # TableFormer for all tables (slowest, most accurate)
+    MARKDOWN = "markdown"
+    JSON = "json"
+    HTML = "html"
 
 
 class Settings(BaseSettings):
@@ -33,67 +26,36 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # GPU Configuration
-    cuda_visible_devices: str = Field(default="0", description="CUDA device IDs")
-    torch_device: str = Field(default="cuda", description="PyTorch device")
-    vram_limit_gb: int = Field(default=22, description="VRAM limit in GB (3090: 22/24)")
-
-    # Inference Mode
-    inference_mode: InferenceMode = Field(
-        default=InferenceMode.TRANSFORMERS,
-        description="Inference backend: transformers or vllm",
+    # MinerU vLLM Server Configuration
+    mineru_vllm_url: str = Field(
+        default="http://localhost:4444",
+        description="MinerU 2.5 vLLM server base URL (API server will communicate with this)",
     )
-
-    # vLLM Configuration
-    vllm_deepseek_url: str = Field(
-        default="http://localhost:8000/v1/chat/completions",
-        description="DeepSeek-OCR vLLM endpoint",
-    )
-    vllm_nanonets_url: str = Field(
-        default="http://localhost:8001/v1/chat/completions",
-        description="Nanonets-OCR2-3B vLLM endpoint",
-    )
-    vllm_granite_url: str = Field(
-        default="http://localhost:8002/v1/chat/completions",
-        description="Granite-Docling vLLM endpoint",
-    )
-    vllm_api_key: str = Field(default="EMPTY", description="vLLM API key")
-
-    # Model Paths
-    deepseek_model: str = Field(
-        default="deepseek-ai/DeepSeek-OCR",
-        description="DeepSeek-OCR model ID",
-    )
-    nanonets_model: str = Field(
-        default="nanonets/Nanonets-OCR2-3B",
-        description="Nanonets-OCR2-3B model ID",
-    )
-    granite_model: str = Field(
-        default="ibm-granite/granite-docling-258m",
-        description="Granite-Docling model ID",
+    mineru_model: str = Field(
+        default="opendatalab/MinerU2.5-2509-1.2B",
+        description="MinerU model ID (for reference only, hosted on vLLM server)",
     )
 
     # Processing Configuration
-    default_accuracy_mode: AccuracyMode = Field(
-        default=AccuracyMode.BALANCED,
-        description="Default accuracy mode",
+    concurrency: int = Field(
+        default=16,
+        description="Number of concurrent pages to process within each batch",
     )
-    default_batch_size: int = Field(default=4, description="Default batch size")
+    batch_size: int = Field(
+        default=64,
+        description="Number of pages to process per batch (reduces memory usage)",
+    )
     max_pages_per_batch: int = Field(
-        default=500,
-        description="Maximum pages per batch",
+        default=1000,
+        description="Maximum pages per job",
     )
-    enable_signature_detection: bool = Field(
-        default=True,
-        description="Enable signature detection (Nanonets)",
+    timeout: int = Field(
+        default=600,
+        description="Request timeout in seconds",
     )
-    enable_handwriting_detection: bool = Field(
-        default=True,
-        description="Enable handwriting detection (Nanonets)",
-    )
-    enable_enrichment: bool = Field(
-        default=False,
-        description="Enable Granite semantic enrichment (slower but better structure)",
+    max_retries: int = Field(
+        default=3,
+        description="Maximum retry attempts for failed requests",
     )
 
     # Output Configuration
@@ -118,6 +80,10 @@ class Settings(BaseSettings):
     redis_url: str = Field(
         default="redis://localhost:6379/0",
         description="Redis connection URL for job queue",
+    )
+    num_workers: int = Field(
+        default=2,
+        description="Number of background workers for async job processing",
     )
 
     def model_post_init(self, __context):
