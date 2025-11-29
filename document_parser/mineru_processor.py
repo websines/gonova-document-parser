@@ -1,8 +1,8 @@
 """
-MinerU 2.5 document processor with concurrent page processing.
+HunyuanOCR document processor with concurrent page processing.
 
-This processor uses a single lightweight model (1.2B params) to handle
-all document types with parallel page processing for maximum speed.
+This processor uses HunyuanOCR model to handle all document types
+with parallel page processing for maximum speed.
 """
 
 import asyncio
@@ -29,15 +29,14 @@ class ProcessingResult(BaseModel):
     error: Optional[str] = None
 
 
-class MinerUProcessor:
+class HunyuanOCRProcessor:
     """
-    MinerU 2.5 processor for document parsing.
+    HunyuanOCR processor for document parsing.
 
     Features:
-    - Single 1.2B model for all document types
+    - Tencent HunyuanOCR model for all document types
     - Concurrent page processing (configurable concurrency)
     - Connects to external vLLM server (no local model hosting)
-    - 2-3x faster than multi-model systems
     """
 
     def __init__(
@@ -49,16 +48,16 @@ class MinerUProcessor:
         max_retries: int = None,
     ):
         """
-        Initialize MinerU processor.
+        Initialize HunyuanOCR processor.
 
         Args:
-            vllm_url: MinerU vLLM server URL (defaults to settings)
+            vllm_url: HunyuanOCR vLLM server URL (defaults to settings)
             concurrency: Number of concurrent pages within each batch (defaults to settings)
             batch_size: Number of pages per batch (defaults to settings)
             timeout: Request timeout in seconds (defaults to settings)
             max_retries: Max retry attempts (defaults to settings)
         """
-        self.vllm_url = (vllm_url or settings.mineru_vllm_url).rstrip("/")
+        self.vllm_url = (vllm_url or settings.vllm_url).rstrip("/")
         self.concurrency = concurrency or settings.concurrency
         self.batch_size = batch_size or settings.batch_size
         self.timeout = timeout or settings.timeout
@@ -71,7 +70,7 @@ class MinerUProcessor:
         )
 
         logger.info(
-            f"MinerU Processor initialized: "
+            f"HunyuanOCR Processor initialized: "
             f"server={self.vllm_url}, concurrency={self.concurrency}, "
             f"batch_size={self.batch_size}"
         )
@@ -124,7 +123,7 @@ class MinerUProcessor:
                 "processing_time": processing_time,
                 "pages_per_second": pages_per_sec,
                 "concurrency": self.concurrency,
-                "model": settings.mineru_model,
+                "model": settings.ocr_model,
             }
 
             logger.success(
@@ -279,10 +278,14 @@ class MinerUProcessor:
         image.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        # Prepare request for vLLM OpenAI-compatible API
+        # Prepare request for vLLM OpenAI-compatible API (HunyuanOCR format)
         payload = {
-            "model": settings.mineru_model,
+            "model": settings.ocr_model,
             "messages": [
+                {
+                    "role": "system",
+                    "content": ""
+                },
                 {
                     "role": "user",
                     "content": [
@@ -294,13 +297,13 @@ class MinerUProcessor:
                         },
                         {
                             "type": "text",
-                            "text": "Extract all text, tables, formulas, and content from this document page. Output in markdown format."
+                            "text": "Extract all information from the main body of the document image and represent it in markdown format. For tables use HTML table format. For formulas use LaTeX format."
                         }
                     ]
                 }
             ],
             "max_tokens": 4096,
-            "temperature": 0,
+            "temperature": 0.0,
         }
 
         # Retry logic
@@ -355,7 +358,7 @@ class MinerUProcessor:
     def get_capabilities(self) -> Dict:
         """Get processor capabilities."""
         return {
-            "model": settings.mineru_model,
+            "model": settings.ocr_model,
             "supports": [
                 "text",
                 "tables",
@@ -363,10 +366,9 @@ class MinerUProcessor:
                 "forms",
                 "signatures",
                 "handwriting",
-                "multilingual_84_languages",
+                "multilingual",
             ],
             "max_tokens": 4096,
             "batch_size": self.batch_size,
             "concurrency": self.concurrency,
-            "parameters": "1.2B",
         }

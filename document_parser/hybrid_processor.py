@@ -1,7 +1,7 @@
 """
-Main document processor using MinerU 2.5.
+Main document processor using HunyuanOCR.
 
-Simplified from hybrid multi-model system to single lightweight model.
+Simplified from hybrid multi-model system to single model.
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from document_parser.config import settings
-from document_parser.mineru_processor import MinerUProcessor
+from document_parser.mineru_processor import HunyuanOCRProcessor
 
 
 class GraphDocument(BaseModel):
@@ -32,13 +32,7 @@ class GraphDocument(BaseModel):
 
 class HybridDocumentProcessor:
     """
-    Document processor using MinerU 2.5.
-
-    Simplified from multi-model hybrid system:
-    - Single lightweight model (1.2B params)
-    - Concurrent page processing
-    - 2-3x faster than old multi-model system
-    - 60-70% less VRAM usage
+    Document processor using HunyuanOCR.
 
     Features:
     - Concurrent page processing (configurable)
@@ -51,7 +45,7 @@ class HybridDocumentProcessor:
         self,
         accuracy_mode: str = None,  # Kept for API compatibility (unused)
         inference_mode: str = None,  # Kept for API compatibility (unused)
-        enable_enrichment: bool = False,  # Not used with MinerU
+        enable_enrichment: bool = False,  # Not used
         enable_embeddings: bool = False,
     ):
         """
@@ -60,22 +54,22 @@ class HybridDocumentProcessor:
         Args:
             accuracy_mode: Ignored (for backward compatibility)
             inference_mode: Ignored (for backward compatibility)
-            enable_enrichment: Not used with MinerU
+            enable_enrichment: Not used
             enable_embeddings: Enable Qwen3 embedding generation (optional)
         """
         self.enable_embeddings = enable_embeddings
 
         logger.info(
-            f"Initializing MinerU Document Processor: "
-            f"model={settings.mineru_model}, "
+            f"Initializing HunyuanOCR Document Processor: "
+            f"model={settings.ocr_model}, "
             f"batch_size={settings.batch_size}, "
             f"concurrency={settings.concurrency}, "
             f"embeddings={enable_embeddings}"
         )
 
         # Main processor
-        self.processor = MinerUProcessor(
-            vllm_url=settings.mineru_vllm_url,
+        self.processor = HunyuanOCRProcessor(
+            vllm_url=settings.vllm_url,
             concurrency=settings.concurrency,
             batch_size=settings.batch_size,
             timeout=settings.timeout,
@@ -124,9 +118,9 @@ class HybridDocumentProcessor:
         logger.info(f"{'='*60}\n")
 
         try:
-            # Step 1: Process with MinerU (batched concurrent processing)
-            logger.info("Step 1: Processing with MinerU 2.5...")
-            logger.info(f"  Model: {settings.mineru_model} (1.2B params)")
+            # Step 1: Process with HunyuanOCR (batched concurrent processing)
+            logger.info("Step 1: Processing with HunyuanOCR...")
+            logger.info(f"  Model: {settings.ocr_model}")
             logger.info(f"  Batch size: {settings.batch_size} pages per batch")
             logger.info(f"  Concurrency: {settings.concurrency} pages per batch in parallel")
 
@@ -238,13 +232,13 @@ class HybridDocumentProcessor:
     def get_status(self) -> Dict:
         """Get processor status."""
         return {
-            "model": settings.mineru_model,
-            "vllm_url": settings.mineru_vllm_url,
+            "model": settings.ocr_model,
+            "vllm_url": settings.vllm_url,
             "batch_size": settings.batch_size,
             "concurrency": settings.concurrency,
             "enable_embeddings": self.enable_embeddings,
             "processors_loaded": {
-                "mineru": True,
+                "hunyuan_ocr": True,
                 "embedding": self._embedding is not None,
             },
             "capabilities": self.processor.get_capabilities(),

@@ -302,8 +302,8 @@ async def health():
         version="1.0.0",
         processors=processor.get_status()["processors_loaded"] if processor else {},
         config={
-            "model": settings.mineru_model,
-            "vllm_url": settings.mineru_vllm_url,
+            "model": settings.ocr_model,
+            "vllm_url": settings.vllm_url,
             "batch_size": settings.batch_size,
             "concurrency": settings.concurrency,
         },
@@ -316,7 +316,7 @@ async def health():
     tags=["Processing"],
     summary="Process a PDF document",
     description="""
-    Upload and process a PDF document with MinerU 2.5.
+    Upload and process a PDF document with HunyuanOCR.
 
     Returns a job ID for tracking progress. Use /v1/jobs/{job_id} to check status.
 
@@ -324,11 +324,6 @@ async def health():
     - `json`: Graph-ready structure with nodes and edges
     - `markdown`: Human-readable markdown
     - `html`: Web-ready HTML
-
-    **Performance:**
-    - Single 1.2B model processes all document types
-    - 2-3x faster than old multi-model system
-    - 60-70% less VRAM usage
     """,
 )
 async def process_document(
@@ -578,7 +573,7 @@ async def process_document_sync(
     - Multiple concurrent uploads
     - Avoiding timeouts
 
-    Uses MinerU 2.5 for fast, accurate processing.
+    Uses HunyuanOCR for fast, accurate processing.
 
     Use GET /v1/jobs/{job_id}/status to check progress.
     Use GET /v1/jobs/{job_id}/result to download markdown when complete.
@@ -717,7 +712,7 @@ async def delete_job(job_id: str):
     "/v1/capabilities",
     tags=["Info"],
     summary="Get processor capabilities",
-    description="Get detailed information about MinerU processor capabilities",
+    description="Get detailed information about HunyuanOCR processor capabilities",
 )
 async def get_capabilities():
     """Get processor capabilities."""

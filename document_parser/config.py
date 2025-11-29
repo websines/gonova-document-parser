@@ -26,14 +26,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # MinerU vLLM Server Configuration
-    mineru_vllm_url: str = Field(
+    # HunyuanOCR vLLM Server Configuration
+    vllm_url: str = Field(
         default="http://localhost:4444",
-        description="MinerU 2.5 vLLM server base URL (API server will communicate with this)",
+        description="HunyuanOCR vLLM server base URL (API server will communicate with this)",
     )
-    mineru_model: str = Field(
-        default="opendatalab/MinerU2.5-2509-1.2B",
-        description="MinerU model ID (for reference only, hosted on vLLM server)",
+    ocr_model: str = Field(
+        default="tencent/HunyuanOCR",
+        description="OCR model ID (for reference only, hosted on vLLM server)",
     )
 
     # Processing Configuration
