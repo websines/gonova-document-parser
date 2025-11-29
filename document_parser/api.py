@@ -13,7 +13,7 @@ import time
 import uuid
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import (
     BackgroundTasks,
@@ -91,7 +91,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     processors: Dict[str, bool]
-    config: Dict[str, str]
+    config: Dict[str, Any]
 
 
 # ============================================================================
